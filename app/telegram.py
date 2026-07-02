@@ -7,6 +7,22 @@ class TelegramClient:
     def __init__(self, client: AsyncClient, settings: Settings) -> None:
         self._client = client
         self._base = f"https://api.telegram.org/bot{settings.bot_token}"
+        self._webhook_secret = settings.webhook_secret
+        self._public_url = settings.public_url.rstrip("/")
+
+    async def set_webhook(self) -> None:
+        body = {
+            "url": f"{self._public_url}/webhook",
+            "secret_token": self._webhook_secret,
+        }
+        resp = await self._client.post(
+            f"{self._base}/setWebhook",
+            json=body,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        if not result.get("ok"):
+            raise RuntimeError(f"setWebhook failed: {result}")
 
     async def send_message(
         self,

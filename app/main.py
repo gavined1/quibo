@@ -27,6 +27,8 @@ async def lifespan(_app: FastAPI):
         _app.state.telegram = TelegramClient(http_client, settings)
         _app.state.llm = LLMClient(http_client, settings)
         _app.state.memory = Memory(http_client, settings)
+        await _app.state.telegram.set_webhook()
+        logger.info("webhook registered at %s/webhook", settings.public_url.rstrip("/"))
         yield
 
 

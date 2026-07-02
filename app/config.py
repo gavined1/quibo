@@ -14,5 +14,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_key: str
 
+    public_url: str
+
     rate_limit_max: int = 5
     rate_limit_window: int = 60
