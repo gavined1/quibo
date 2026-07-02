@@ -1,5 +1,4 @@
 import logging
-import re
 import time
 from contextlib import asynccontextmanager
 
@@ -20,7 +19,6 @@ settings = Settings()
 
 rate_limiter = RateLimiter(max_requests=settings.rate_limit_max, window=settings.rate_limit_window)
 
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as http_client:
@@ -35,12 +33,15 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-BOT_MENTION_RE = re.compile(r"@quibo_ai_bot\s*", re.IGNORECASE)
+HINT = "Hi, I'm Quibo! Type @ai followed by your question to get started."
 
 
 def _extract_prompt(text: str) -> str | None:
     text = text.strip()
-    prompt = BOT_MENTION_RE.sub("", text, count=1).strip()
+    idx = text.lower().find("@ai")
+    if idx == -1:
+        return None
+    prompt = text[idx + 3:].strip()
     if not prompt:
         return None
     return prompt
@@ -64,34 +65,31 @@ async def webhook(request: Request) -> dict:
     body = await request.json()
     update = body
 
-    msg = update.get("message") or update.get("guest_message")
+    msg = update.get("business_message") or update.get("message")
     if not msg:
-        logger.info("ignored update (no message/guest_message) | keys=%s update_id=%s", list(update.keys()), update.get("update_id"))
-        return {"ok": True}
-
-    chat = msg.get("chat", {})
-    chat_type = chat.get("type", "")
-    if chat_type == "private":
+        logger.info("ignored (no business_message/message) | keys=%s", list(update.keys()))
         return {"ok": True}
 
     text = msg.get("text", "")
     if not text:
-        logger.info("ignored (no text) | chat_type=%s chat_id=%d", chat_type, msg.get("chat", {}).get("id"))
         return {"ok": True}
 
-    logger.info("message received | chat_type=%s text_preview=%s", chat_type, text[:80])
+    if "@ai" not in text.lower():
+        return {"ok": True}
 
     prompt = _extract_prompt(text)
+    chat = msg.get("chat", {})
     chat_id = chat["id"]
     user = msg.get("from", {})
     user_id = user.get("id", 0)
+    business_connection_id = msg.get("business_connection_id")
 
     if prompt is None:
-        hint = "Hi, I'm Quibo! Mention me with a question to get started."
         await app.state.telegram.send_message(
             chat_id=chat_id,
-            text=hint,
+            text=HINT,
             reply_to_message_id=msg["message_id"],
+            business_connection_id=business_connection_id,
         )
         return {"ok": True}
 
@@ -117,16 +115,17 @@ async def webhook(request: Request) -> dict:
             chat_id=chat_id,
             text=reply,
             reply_to_message_id=msg["message_id"],
+            business_connection_id=business_connection_id,
         )
 
         await app.state.memory.cleanup_old()
 
         elapsed = time.monotonic() - start
         logger.info(
-            "mention | chat_id=%d user_id=%d prompt_len=%d response_len=%d latency=%.2fs",
+            "trigger | chat_id=%d user_id=%d prompt_len=%d response_len=%d latency=%.2fs",
             chat_id, user_id, len(prompt), len(reply), elapsed,
         )
     except Exception:
-        logger.exception("error handling mention | chat_id=%d user_id=%d", chat_id, user_id)
+        logger.exception("error handling trigger | chat_id=%d user_id=%d", chat_id, user_id)
 
     return {"ok": True}

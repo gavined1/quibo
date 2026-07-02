@@ -15,6 +15,7 @@ class TelegramClient:
         body = {
             "url": f"{self._public_url}/webhook",
             "secret_token": self._webhook_secret,
+            "allowed_updates": ["message", "business_message", "business_connection"],
         }
         try:
             resp = await self._client.post(
@@ -33,12 +34,15 @@ class TelegramClient:
         chat_id: int,
         text: str,
         reply_to_message_id: int | None = None,
+        business_connection_id: str | None = None,
     ) -> None:
-        body = {
+        body: dict = {
             "chat_id": chat_id,
             "text": text,
             "reply_to_message_id": reply_to_message_id,
         }
+        if business_connection_id:
+            body["business_connection_id"] = business_connection_id
         try:
             resp = await self._client.post(
                 f"{self._base}/sendMessage",
