@@ -1,99 +1,169 @@
-# Quibo — Telegram Bot
+# Quibo Telegram Bot
 
-A FastAPI-based Telegram bot that triggers on the keyword `@ai` in any chat using Telegram's **Chat Automation** (Business Connection) feature. Backed by an OpenAI-compatible LLM and Supabase for conversation memory.
+Quibo is a lightweight, mention-only AI assistant for Telegram groups.
 
-## How it works
+- Works in **Guest Mode** — the bot does **not** need to be added to groups.
+- Only responds when explicitly @mentioned.
+- Replies inline in the same group chat.
+- Stores per-user conversation memory in Supabase.
+- Deployed on Railway with FastAPI + webhook.
 
-- Users connect the bot via **Settings > Chat Automation** and set up a keyword trigger for `@ai`.
-- When `@ai` appears anywhere in a message, Telegram sends a `business_message` update to the bot's webhook.
-- The text after `@ai` is sent to the LLM, and the reply is posted in the same chat as a reply to the original message (via the user's connected account).
-- Conversation history (last 5 exchanges) is included for context — stored in Supabase.
-- Rate limiting prevents abuse (5 requests/user/minute in-memory).
+## Features
+
+- Guest Mode mention handling (works even if bot is not in the group)
+- Prompt extraction after `@quibo_ai_bot`
+- OpenAI-compatible LLM backend (configurable)
+- Per-user rate limiting (in-memory)
+- Conversation memory (last messages + 24h expiry)
+- Concise responses (< 500 chars)
+- Structured logging
+
+## Project Structure
+
+```
+.
+├── main.py
+├── requirements.txt
+├── Dockerfile
+├── .env.example
+└── README.md
+```
 
 ## Setup
 
-### 1. Create the bot on Telegram
+### 1. Create the Telegram Bot
 
-1. Open [@BotFather](https://t.me/BotFather) on Telegram.
-2. Send `/newbot` and follow the prompts. Choose the username `quibo_ai_bot`.
-3. Copy the **bot token** — this is your `BOT_TOKEN`.
+1. Open Telegram and talk to [@BotFather](https://t.me/BotFather)
+2. Send `/newbot`
+3. Choose a name: **Quibo**
+4. Choose a username: `quibo_ai_bot`
+5. **Important for Guest Mode**: After creation, send `/setprivacy` → choose your bot → select **Disable**.
 
-### 2. No BotFather configuration needed
+   This is required so the bot can see mentions in groups it's not a member of.
 
-The webhook is registered automatically on startup. No manual `/setwebhook` in BotFather required.
+### 2. Create Supabase Table
 
-### 3. Connect the bot via Chat Automation
-
-1. Open Telegram **Settings > Chat Automation**.
-2. Tap **Connect Bot** and enter `@quibo_ai_bot`.
-3. Configure the keyword trigger: set `@ai` as the trigger keyword.
-4. Choose the scope: **All chats** or specific chats.
-5. The bot will now receive `business_message` updates whenever `@ai` is typed.
-
-### 4. Supabase table
-
-Run this SQL in the Supabase SQL editor:
+Go to your Supabase project → **SQL Editor** and run:
 
 ```sql
-CREATE TABLE quibo_conversations (
-    id BIGSERIAL PRIMARY KEY,
-    chat_id BIGINT NOT NULL,
-    user_id BIGINT NOT NULL,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+create table if not exists quibo_conversations (
+  id bigserial primary key,
+  chat_id bigint not null,
+  user_id bigint not null,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null,
+  created_at timestamptz not null default now()
 );
 
-CREATE INDEX idx_quibo_conversations_key ON quibo_conversations (chat_id, user_id);
-CREATE INDEX idx_quibo_conversations_created_at ON quibo_conversations (created_at);
+-- Optional but recommended indexes
+create index if not exists idx_quibo_chat_user on quibo_conversations(chat_id, user_id);
+create index if not exists idx_quibo_created_at on quibo_conversations(created_at);
+
+-- Optional: RLS (recommended for production)
+-- alter table quibo_conversations enable row level security;
 ```
 
-### 5. Environment variables
+### 3. Environment Variables
 
-Copy `.env.example` to `.env` and fill in your values:
+Copy the example:
 
 ```bash
 cp .env.example .env
 ```
 
-| Variable         | Description                      |
-|------------------|----------------------------------|
-| BOT_TOKEN        | Telegram bot token from BotFather|
-| WEBHOOK_SECRET   | Arbitrary secret for webhook auth|
-| LLM_BASE_URL     | OpenAI-compatible base URL       |
-| LLM_API_KEY      | API key for the LLM provider     |
-| LLM_MODEL        | Model name (e.g. gpt-4o-mini)    |
-| SUPABASE_URL     | Supabase project URL             |
-| SUPABASE_KEY     | Supabase service_role key        |
-| PUBLIC_URL       | Your Railway app URL (e.g. `https://quibo-production.up.railway.app`) |
+Fill in `.env`:
 
-### 6. Run locally
+```env
+BOT_TOKEN=123456:ABCDEF...your-telegram-token
+WEBHOOK_SECRET=some-long-random-secret-string
+
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=sk-...
+LLM_MODEL=gpt-4o-mini
+
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### 4. Local Development
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-uvicorn app.main:app --reload
+
+uvicorn main:app --reload
 ```
 
-For local testing, use [ngrok](https://ngrok.com) to expose your server and set `PUBLIC_URL` to the ngrok URL.
+### 5. Set Webhook (for local testing)
 
-### 7. Deploy to Railway
+You can use ngrok or Railway's automatic deployment.
 
-Connect your repository to [Railway](https://railway.app) and set the environment variables above. Railway will auto-detect the Dockerfile.
+For manual testing:
 
-## Usage
-
-In any chat where you've enabled the Chat Automation, type:
-
-```
-@ai what is the capital of France?
+```bash
+curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
+  -d "url=https://your-domain.com/webhook" \
+  -d "secret_token=your-webhook-secret"
 ```
 
-The bot will reply inline in the chat, appearing as sent by you.
+### 6. Railway Deployment
 
-## Notes
+1. Push this repo to GitHub
+2. Go to [Railway.app](https://railway.app) → New Project → Deploy from GitHub
+3. Add all variables from `.env` as **Variables**
+4. Railway will automatically detect the Dockerfile and deploy
+5. After deployment, copy the public Railway URL
 
-- The bot only processes messages containing `@ai` (case-insensitive) — all others are ignored.
-- Only `business_message` and `message` update types are handled.
-- Webhook requests are validated against `WEBHOOK_SECRET` via the `X-Telegram-Bot-Api-Secret-Token` header.
-- Response length is capped at 500 characters.
-- Old conversation history (>24h) is cleaned up on each request.
+6. Set the webhook:
+
+```bash
+curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
+  -d "url=https://your-railway-url.up.railway.app/webhook" \
+  -d "secret_token=${WEBHOOK_SECRET}"
+```
+
+You can also set the webhook from code on startup if preferred.
+
+### 7. Usage in Telegram
+
+In any group (even if the bot is not a member):
+
+```
+@quibo_ai_bot what is the capital of France?
+```
+
+Quibo will reply directly in the group as a reply to your message.
+
+If you just mention it without a question:
+
+```
+@quibo_ai_bot
+```
+
+It will send a usage hint.
+
+## Environment Variables Reference
+
+| Variable              | Required | Description                              |
+|-----------------------|----------|------------------------------------------|
+| BOT_TOKEN             | Yes      | Telegram bot token from BotFather        |
+| WEBHOOK_SECRET        | Yes      | Secret for verifying Telegram webhooks   |
+| LLM_BASE_URL          | Yes      | OpenAI-compatible endpoint               |
+| LLM_API_KEY           | Yes      | API key for the LLM                      |
+| LLM_MODEL             | No       | Model name (default: gpt-4o-mini)        |
+| SUPABASE_URL          | Yes      | Supabase project URL                     |
+| SUPABASE_KEY          | Yes      | Supabase anon/service role key           |
+| RATE_LIMIT_PER_MINUTE | No       | Default: 5                               |
+
+## Notes & Limitations
+
+- Memory is per `(chat_id, user_id)` — different people in the same group have separate histories.
+- History older than 24 hours is cleaned on each request.
+- Rate limiting is in-memory (resets on restart). For heavy use, consider adding Redis.
+- Responses are capped at ~500 characters for group chat readability.
+- The bot ignores all messages except direct mentions in groups.
+
+## License
+
+MIT — feel free to fork and customize.
