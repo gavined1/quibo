@@ -12,6 +12,7 @@ from app.memory import Memory
 from app.rate_limiter import RateLimiter
 from app.telegram import TelegramClient
 
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("quibo")
 logging.basicConfig(level=logging.INFO, format="%(levelname)-5s | %(message)s")
 
