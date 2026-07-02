@@ -65,6 +65,7 @@ async def webhook(request: Request) -> dict:
 
     msg = update.get("message")
     if not msg:
+        logger.info("ignored update (no message) | keys=%s update_id=%s", list(update.keys()), update.get("update_id"))
         return {"ok": True}
 
     chat = msg.get("chat", {})
@@ -74,7 +75,10 @@ async def webhook(request: Request) -> dict:
 
     text = msg.get("text", "")
     if not text:
+        logger.info("ignored (no text) | chat_type=%s chat_id=%d", chat_type, msg.get("chat", {}).get("id"))
         return {"ok": True}
+
+    logger.info("message received | chat_type=%s text_preview=%s", chat_type, text[:80])
 
     prompt = _extract_prompt(text)
     chat_id = chat["id"]
