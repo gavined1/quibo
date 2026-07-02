@@ -63,9 +63,9 @@ async def webhook(request: Request) -> dict:
     body = await request.json()
     update = body
 
-    msg = update.get("message")
+    msg = update.get("message") or update.get("guest_message")
     if not msg:
-        logger.info("ignored update (no message) | keys=%s update_id=%s", list(update.keys()), update.get("update_id"))
+        logger.info("ignored update (no message/guest_message) | keys=%s update_id=%s", list(update.keys()), update.get("update_id"))
         return {"ok": True}
 
     chat = msg.get("chat", {})
